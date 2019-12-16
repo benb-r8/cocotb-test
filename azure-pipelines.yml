@@ -71,6 +71,7 @@ jobs:
     
   - script: |
       source activate myenv
+      pip install pytest pytest-azurepipelines
     displayName: Activate Anaconda environment
     condition: ne( variables['Agent.OS'], 'Windows_NT' )
     
