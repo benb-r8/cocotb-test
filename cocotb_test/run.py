@@ -9,7 +9,10 @@ from xml.etree import cElementTree as ET
 
 def run(simulator=None, **kwargs):
 
-    sim_env = os.getenv("SIM", "icarus")
+    print(kwargs)
+    sim_env = kwargs["sim"]
+    if not sim_env:
+        sim_env = os.getenv("SIM", "icarus")
 
     supported_sim = ["icarus", "questa", "ius", "vcs", "ghdl", "aldec", "verilator"]
     if (sim_env in supported_sim) or simulator:

@@ -41,13 +41,26 @@ class Simulator(object):
         plus_args=None,
         force_compile=False,
         testcase=None,
-        sim_build="sim_build",
+        sim_build=None,
         seed=None,
         extra_env=None,
         compile_only=False,
         gui=False,
+        rtl_library=None,
+        vopt_args=None,
+        toplevel2=None,
+        time_resolution=None,
         **kwargs
     ):
+
+        self.gui = gui
+        self.rtl_library = rtl_library
+        self.vopt_args = vopt_args
+        self.toplevel2 = toplevel2
+        self.time_resolution = time_resolution
+
+        if sim_build is None:
+            sim_build = ".sim_build_" + module
 
         self.sim_dir = os.path.join(os.getcwd(), sim_build)
 
@@ -144,7 +157,7 @@ class Simulator(object):
 
         for path in self.python_search:
             self.env["PYTHONPATH"] += os.pathsep + path
-        
+
         self.env["PYTHONPATH"] += os.pathsep + self.run_dir
         self.env["PYTHONPATH"] += os.pathsep + python_path
 
@@ -312,7 +325,8 @@ class Questa(Simulator):
 
     def build_command(self):
 
-        self.rtl_library = self.toplevel
+        if self.rtl_library is None:
+            self.rtl_library = self.toplevel
 
         cmd = []
 
@@ -345,14 +359,18 @@ class Questa(Simulator):
 
         if not self.compile_only:
             if self.toplevel_lang == "vhdl":
-                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL};".format(
-                    ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
-                    EXT_NAME=as_tcl_value(
+
+                do_script = "vsim -onfinish {ON_FINISH} -foreign {EXT_NAME} {TIME_RES} {EXTRA_ARGS} {VOPT_ARGS_CMD} {RTL_LIBRARY}.{TOPLEVEL} {TOPLEVEL2_CMD};".format( \
+                    ON_FINISH     = "stop" if self.gui else "exit",
+                    RTL_LIBRARY   = as_tcl_value(self.rtl_library),
+                    TOPLEVEL      = as_tcl_value(self.toplevel),
+                    TOPLEVEL2_CMD = "{}.{}".format(self.rtl_library, self.toplevel2) if self.toplevel2 else "",
+                    VOPT_ARGS_CMD = "-voptargs=\"{}\"".format(self.vopt_args) if self.vopt_args else "",
+                    TIME_RES      = "-t {}".format(self.time_resolution) if self.time_resolution else "",
+                    EXT_NAME      = as_tcl_value(
                         "cocotb_init {}".format(os.path.join(self.lib_dir, "libfli." + self.lib_ext))
                     ),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.simulation_args),
+                    EXTRA_ARGS    = " ".join(as_tcl_value(v) for v in self.simulation_args),
                 )
             else:
                 do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
@@ -364,9 +382,11 @@ class Questa(Simulator):
                     PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
                 )
 
-            # do_script += "log -recursive /*;"
-
-            if not self.gui:
+            if self.gui:
+                #do_script += "log -recursive /*;"
+                do_script += "do wave.do"
+                cmd.append(["vsim"] + ["-do"] + [do_script])
+            else:
                 do_script += "run -all; quit"
 
             cmd.append(["vsim"] + (["-gui"] if self.gui else ["-c"]) + ["-do"] + [do_script])
