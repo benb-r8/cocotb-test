@@ -141,8 +141,6 @@ class Simulator(object):
         if seed is not None:
             self.env["RANDOM_SEED"] = str(seed)
 
-        self.gui = gui
-
     def set_env(self):
 
         for e in os.environ:
@@ -324,7 +322,7 @@ class Questa(Simulator):
         return defines_cmd
 
     def build_command(self):
-
+        print("running build_command")
         if self.rtl_library is None:
             self.rtl_library = self.toplevel
 
@@ -385,7 +383,6 @@ class Questa(Simulator):
             if self.gui:
                 #do_script += "log -recursive /*;"
                 do_script += "do wave.do"
-                cmd.append(["vsim"] + ["-do"] + [do_script])
             else:
                 do_script += "run -all; quit"
 
