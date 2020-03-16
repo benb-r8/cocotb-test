@@ -1,6 +1,7 @@
 import subprocess
 import os
 import sys
+import datetime
 import inspect
 import pkg_resources
 import tempfile
@@ -36,9 +37,11 @@ class Simulator(object):
         includes=None,
         defines=None,
         compile_args=None,
+        vhdl_compile_args=None,
         simulation_args=None,
         extra_args=None,
         plus_args=None,
+        coverage=False,
         force_compile=False,
         testcase=None,
         sim_build=None,
@@ -58,6 +61,7 @@ class Simulator(object):
         self.vopt_args = vopt_args
         self.toplevel2 = toplevel2
         self.time_resolution = time_resolution
+        self.coverage = coverage
 
         if sim_build is None:
             sim_build = ".sim_build_" + module
@@ -114,6 +118,10 @@ class Simulator(object):
             extra_args = []
 
         self.compile_args = compile_args + extra_args
+
+        self.vhdl_compile_args = vhdl_compile_args
+        if vhdl_compile_args is None:
+            self.vhdl_compile_args = []
 
         if simulation_args is None:
             simulation_args = []
@@ -333,10 +341,11 @@ class Questa(Simulator):
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
             if self.vhdl_sources:
-                do_script = "vcom -mixedsvvh -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}; quit".format(
+                do_script = "vcom -mixedsvvh -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_COMPILE_ARGS} {VHDL_SOURCES}; quit".format(
                     RTL_LIBRARY=as_tcl_value(self.rtl_library),
                     VHDL_SOURCES=" ".join(as_tcl_value(v) for v in self.vhdl_sources),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                    VHDL_COMPILE_ARGS=" ".join(as_tcl_value(v) for v in self.vhdl_compile_args),
                 )
                 self.env["GPI_EXTRA"] = "fli"
 
@@ -358,30 +367,33 @@ class Questa(Simulator):
         if not self.compile_only:
             if self.toplevel_lang == "vhdl":
 
-                do_script = "vsim -onfinish {ON_FINISH} -foreign {EXT_NAME} {TIME_RES} {EXTRA_ARGS} {VOPT_ARGS_CMD} {RTL_LIBRARY}.{TOPLEVEL} {TOPLEVEL2_CMD};".format( \
+                do_script = "vsim -onfinish {ON_FINISH} -foreign {EXT_NAME} {TIME_RES} {EXTRA_ARGS} {VOPT_ARGS_CMD} {COVERAGE} {RTL_LIBRARY}.{TOPLEVEL} {TOPLEVEL2_CMD};".format( \
                     ON_FINISH     = "stop" if self.gui else "exit",
                     RTL_LIBRARY   = as_tcl_value(self.rtl_library),
                     TOPLEVEL      = as_tcl_value(self.toplevel),
                     TOPLEVEL2_CMD = "{}.{}".format(self.rtl_library, self.toplevel2) if self.toplevel2 else "",
                     VOPT_ARGS_CMD = "-voptargs=\"{}\"".format(self.vopt_args) if self.vopt_args else "",
                     TIME_RES      = "-t {}".format(self.time_resolution) if self.time_resolution else "",
-                    EXT_NAME      = as_tcl_value(
-                        "cocotb_init {}".format(os.path.join(self.lib_dir, "libfli." + self.lib_ext))
-                    ),
+                    EXT_NAME      = as_tcl_value("cocotb_init {}".format(os.path.join(self.lib_dir, "libfli." + self.lib_ext))),
                     EXTRA_ARGS    = " ".join(as_tcl_value(v) for v in self.simulation_args),
+                    # COVERAGE      = as_tcl_value("-coverstore /home/blb2abt/workspace -testname {}".format(datetime.datetime.now().strftime("%Y%m%d%H%M%S")))
+                    COVERAGE      = as_tcl_value("-coverage") if self.coverage else ""
                 )
             else:
-                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
+                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {COVERAGE} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
                     ONFINISH="stop" if self.gui else "exit",
                     RTL_LIBRARY=as_tcl_value(self.rtl_library),
                     TOPLEVEL=as_tcl_value(self.toplevel),
                     EXT_NAME=as_tcl_value(os.path.join(self.lib_dir, "libvpi." + self.lib_ext)),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.simulation_args),
                     PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
+                    COVERAGE      = as_tcl_value("-coverage") if self.coverage else ""
                 )
 
+            if self.coverage:
+                do_script += "coverage save -onexit coverage_{}.ucdb;".format(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+
             if self.gui:
-                #do_script += "log -recursive /*;"
                 do_script += "do wave.do"
             else:
                 do_script += "run -all; quit"
