@@ -499,8 +499,7 @@ class Questa(Simulator):
                     TOPLEVEL=as_tcl_value(self.toplevel),
                     VOPT_ARGS_CMD = "-voptargs=\"{}\"".format(self.vopt_args) if self.vopt_args else "",
                     TIME_RES      = "-t {}".format(self.time_resolution) if self.time_resolution else "",
-                    EXT_NAME=as_tcl_value(os.path.join(self.lib_dir, "libcocotbvpi_modelsim." + self.lib_ext)),
-                    # EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "questa")),
+                    EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "questa")),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
                     PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
                     COVERAGE      = as_tcl_value("-coverage") if self.coverage else ""
