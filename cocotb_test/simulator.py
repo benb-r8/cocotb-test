@@ -167,8 +167,10 @@ class Simulator(object):
         for arg in kwargs:
             setattr(self, arg, kwargs[arg])
 
-        # by copy since we modify
-        self.env = dict(extra_env) if extra_env is not None else {}
+        self.env = {}
+        if extra_env is not None:
+            for key, val in extra_env.items():
+                self.env[key] = str(val)
 
         if testcase is not None:
             self.env["TESTCASE"] = testcase
