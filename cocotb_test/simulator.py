@@ -60,6 +60,7 @@ class Simulator(object):
         compile_only=False,
         waves=None,
         gui=False,
+        gui_run_all=True,
         rtl_library=None,
         vopt_args=None,
         toplevel2=None,
@@ -72,6 +73,7 @@ class Simulator(object):
         self.toplevel2 = toplevel2
         self.time_resolution = time_resolution
         self.coverage = coverage
+        self.gui_run_all = gui_run_all
 
         if sim_build is None:
             sim_build = ".sim_build_" + module
@@ -515,6 +517,8 @@ class Questa(Simulator):
 
             if self.gui:
                 do_script += "do wave.do"
+                if self.gui_run_all:
+                    do_script += "; run -all"
             else:
                 do_script += "run -all; quit"
 
