@@ -511,7 +511,7 @@ class Questa(Simulator):
                     self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("fli", "questa")+":cocotbfli_entry_point"
 
             if self.coverage:
-                do_script += "coverage save -onexit coverage_{}.ucdb;".format(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+                do_script += "coverage save -onexit {}_{}.ucdb;".format(self.module, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
             if self.waves:
                 do_script += "log -recursive /*;"
 
