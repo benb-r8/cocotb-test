@@ -457,7 +457,7 @@ class Questa(Simulator):
                 do_script = "vlib {RTL_LIBRARY}; vcom -mixedsvvh -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_COMPILE_ARGS} {VHDL_SOURCES}; quit".format(
                     RTL_LIBRARY=as_tcl_value(self.rtl_library),
                     VHDL_SOURCES=" ".join(as_tcl_value(v) for v in self.vhdl_sources),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                    EXTRA_ARGS=" ".join(v for v in self.compile_args),
                     VHDL_COMPILE_ARGS=" ".join(as_tcl_value(v) for v in self.vhdl_compile_args),
                 )
                 cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
