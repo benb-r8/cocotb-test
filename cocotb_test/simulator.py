@@ -52,6 +52,7 @@ class Simulator(object):
         extra_args=None,
         plus_args=None,
         coverage=False,
+        disable_numeric_std_warnings=False,
         force_compile=False,
         testcase=None,
         sim_build=None,
@@ -73,6 +74,7 @@ class Simulator(object):
         self.toplevel2 = toplevel2
         self.time_resolution = time_resolution
         self.coverage = coverage
+        self.disable_numeric_std_warnings = disable_numeric_std_warnings
         self.gui_run_all = gui_run_all
 
         if sim_build is None:
@@ -510,6 +512,8 @@ class Questa(Simulator):
                 if self.vhdl_sources:
                     self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("fli", "questa")+":cocotbfli_entry_point"
 
+            if self.disable_numeric_std_warnings:
+                do_script += "set NumericStdNoWarnings 1;"
             if self.coverage:
                 do_script += "coverage save -onexit {}_{}.ucdb;".format(self.module, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
             if self.waves:
