@@ -66,9 +66,11 @@ class Simulator(object):
         vopt_args=None,
         toplevel2=None,
         time_resolution=None,
+        msim_compile_do=None,
         **kwargs
     ):
 
+        self.msim_compile_do = msim_compile_do
         self.rtl_library = rtl_library
         self.vopt_args = vopt_args
         self.toplevel2 = toplevel2
@@ -448,7 +450,11 @@ class Questa(Simulator):
 
         out_file = os.path.join(self.sim_dir, self.toplevel, "_info")
 
-        if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
+
+        if self.msim_compile_do:
+            cmd.append(["vsim"] + ["-c"] + ["-do"] + [self.msim_compile_do])
+
+        elif self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
             if os.path.exists(os.path.join(self.sim_dir, self.rtl_library)):
                 do_script = "vdel -lib {RTL_LIBRARY} -all".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
@@ -489,7 +495,7 @@ class Questa(Simulator):
                     EXT_NAME=as_tcl_value(
                         "cocotb_init {}".format(cocotb.config.lib_name_path("fli", "questa"))
                     ),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
+                    EXTRA_ARGS=" ".join((self.simulation_args + self.get_parameter_commands(self.parameters))),
                     COVERAGE      = as_tcl_value("-coverage") if self.coverage else ""
                 )
 
