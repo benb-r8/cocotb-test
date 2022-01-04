@@ -174,6 +174,11 @@ class Simulator(object):
 
         self.process = None
 
+        self.check_toplevel_format()
+
+    def check_toplevel_format(self):
+        assert isinstance(self.toplevel, str), "Parameter `toplevel` must be a string."
+
     def set_env(self):
 
         for e in os.environ:
@@ -189,7 +194,7 @@ class Simulator(object):
 
         self.env["PYTHONHOME"] = get_config_var("prefix")
 
-        self.env["TOPLEVEL"] = self.toplevel
+        self.env["TOPLEVEL"] = self.toplevel_first
         self.env["MODULE"] = self.module
 
         if not os.path.exists(self.sim_dir):
@@ -306,6 +311,12 @@ class Simulator(object):
         signal.signal(signal.SIGTERM, self.old_sigterm_h)
         assert False, "Exiting pid: {} with signum: {}".format(str(pid), str(signum))
 
+    @property
+    def toplevel_first(self):
+        if isinstance(self.toplevel, list):
+            return self.toplevel[0]
+        return self.toplevel
+
 
 class Icarus(Simulator):
     def __init__(self, *argv, **kwargs):
@@ -314,7 +325,11 @@ class Icarus(Simulator):
         if self.vhdl_sources:
             raise ValueError("This simulator does not support VHDL")
 
-        self.sim_file = os.path.join(self.sim_dir, self.toplevel + ".vvp")
+        self.sim_file = os.path.join(self.sim_dir, self.toplevel_first + ".vvp")
+
+
+    def check_toplevel_format(self):
+        assert isinstance(self.toplevel, (str, list)), "Parameter `toplevel` must be a string or a list."
 
     def get_include_commands(self, includes):
         include_cmd = []
@@ -341,9 +356,16 @@ class Icarus(Simulator):
         return parameters_cmd
 
     def compile_command(self):
+        if isinstance(self.toplevel, list):
+            toplevel = []
+            for t in self.toplevel:
+                toplevel += ["-s", t]
+        else:
+            toplevel = ["-s", self.toplevel]
 
         cmd_compile = (
-            ["iverilog", "-o", self.sim_file, "-D", "COCOTB_SIM=1", "-s", self.toplevel, "-g2012"]
+            ["iverilog", "-o", self.sim_file, "-D", "COCOTB_SIM=1", "-g2012"]
+            + toplevel
             + self.get_define_commands(self.defines)
             + self.get_include_commands(self.includes)
             + self.get_parameter_commands(self.parameters)
@@ -394,6 +416,9 @@ class Icarus(Simulator):
 
 
 class Questa(Simulator):
+    def check_toplevel_format(self):
+        assert isinstance(self.toplevel, (str, list)), "Parameter `toplevel` must be a string or a list."
+
     def get_include_commands(self, includes):
         include_cmd = []
         for dir in includes:
@@ -417,7 +442,7 @@ class Questa(Simulator):
 
     def build_command(self):
 
-        self.rtl_library = self.toplevel
+        self.rtl_library = self.toplevel_first
 
         cmd = []
 
@@ -442,11 +467,15 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if not self.compile_only:
+            if isinstance(self.toplevel, list):
+                toplevel = " ".join(as_tcl_value(f"{self.rtl_library}.{t}") for t in self.toplevel)
+            else:
+                toplevel = f"{self.rtl_library}.{self.toplevel}"
+
             if self.toplevel_lang == "vhdl":
-                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL};".format(
+                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL};".format(
                     ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
+                    TOPLEVEL=toplevel,
                     EXT_NAME=as_tcl_value(
                         "cocotb_init {}".format(cocotb.config.lib_name_path("fli", "questa"))
                     ),
@@ -457,10 +486,9 @@ class Questa(Simulator):
                     self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("vpi", "questa")+":cocotbvpi_entry_point"
 
             else:
-                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
+                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL} {PLUS_ARGS};".format(
                     ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
+                    TOPLEVEL=toplevel,
                     EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "questa")),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
                     PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
@@ -910,7 +938,7 @@ class Activehdl(Simulator):
 
         if self.waves:
             do_script += "log -recursive /*;"
-            
+
         return do_script
 
     def build_script_run(self):
