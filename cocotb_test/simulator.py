@@ -1064,7 +1064,10 @@ class Verilator(Simulator):
 
 def run(**kwargs):
 
-    sim_env = os.getenv("SIM", "icarus")
+    if "simulator" in kwargs:
+        sim_env = kwargs["simulator"]
+    else:
+        sim_env = os.getenv("SIM", "icarus")
 
     supported_sim = ["icarus", "questa", "ius", "xcelium", "vcs", "ghdl", "riviera", "activehdl", "verilator"]
     if sim_env not in supported_sim:
