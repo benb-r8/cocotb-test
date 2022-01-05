@@ -46,6 +46,8 @@ class Simulator(object):
         defines=None,
         parameters=None,
         compile_args=None,
+        vhdl_compile_args=None,
+        verilog_compile_args=None,
         sim_args=None,
         extra_args=None,
         plus_args=None,
@@ -126,6 +128,9 @@ class Simulator(object):
             extra_args = []
 
         self.compile_args = compile_args + extra_args
+
+        self.vhdl_compile_args = vhdl_compile_args
+        self.verilog_compile_args = verilog_compile_args
 
         if sim_args is None:
             sim_args = []
@@ -378,6 +383,8 @@ class Icarus(Simulator):
         return parameters_cmd
 
     def compile_command(self):
+        if self.verilog_compile_args is not None:
+            self.compile_args += self.verilog_compile_args
 
         cmd_compile = (
             ["iverilog", "-o", self.sim_file, "-D", "COCOTB_SIM=1", "-s", self.toplevel, "-g2012"]
@@ -467,12 +474,16 @@ class Questa(Simulator):
         self.format_sources_as_dict()
 
         if self.vhdl_sources:
+            extra_args = self.compile_args
+            if self.vhdl_compile_args is not None:
+                extra_args += self.vhdl_compile_args
+
             do_script = ""
             for library, sources in self.vhdl_sources.items():
                 do_script += "vlib {RTL_LIBRARY}; vcom -mixedsvvh {FORCE} -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES};".format(
                     RTL_LIBRARY=as_tcl_value(library),
                     VHDL_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     FORCE= "" if self.force_compile else "-incr",
                 )
             do_script += " quit"
@@ -480,13 +491,18 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if self.verilog_sources:
+            extra_args = self.compile_args
+            if self.verilog_compile_args is not None:
+                extra_args += self.verilog_compile_args
+
+            do_script = ""
             for library, sources in self.verilog_sources.items():
-                do_script = "vlib {RTL_LIBRARY}; vlog -mixedsvvh {FORCE} -work {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES};".format(
+                do_script += "vlib {RTL_LIBRARY}; vlog -mixedsvvh {FORCE} -work {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES};".format(
                     RTL_LIBRARY=as_tcl_value(library),
                     VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in sources),
                     DEFINES=" ".join(self.get_define_commands(self.defines)),
                     INCDIR=" ".join(self.get_include_commands(self.includes)),
-                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     FORCE= "" if self.force_compile else "-incr",
                 )
             do_script += " quit"
@@ -570,6 +586,8 @@ class Ius(Simulator):
 
     def build_command(self):
 
+        assert self.vhdl_compile_args is None and self.verilog_compile_args is None, "HDL specific compile arguments not implemented for IUS."
+
         out_file = os.path.join(self.sim_dir, "INCA_libs", "history")
 
         cmd = []
@@ -646,6 +664,8 @@ class Xcelium(Simulator):
 
     def build_command(self):
 
+        assert self.vhdl_compile_args is None and self.verilog_compile_args is None, "HDL specific compile arguments not implemented for Xcelium."
+
         out_file = os.path.join(self.sim_dir, "INCA_libs", "history")
 
         cmd = []
@@ -710,6 +730,9 @@ class Vcs(Simulator):
 
     def build_command(self):
 
+        if self.verilog_compile_args is not None:
+            self.compile_args += self.verilog_compile_args
+
         pli_cmd = "acc+=rw,wn:*"
 
         cmd = []
@@ -773,6 +796,9 @@ class Ghdl(Simulator):
 
     def build_command(self):
 
+        if self.vhdl_compile_args is not None:
+            self.compile_args += self.vhdl_compile_args
+
         cmd = []
 
         out_file = os.path.join(self.sim_dir, self.toplevel)
@@ -835,16 +861,22 @@ class Riviera(Simulator):
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
             if self.vhdl_sources:
+                extra_args = self.compile_args
+                if self.vhdl_compile_args is not None:
+                    extra_args += self.vhdl_compile_args
 
                 for library, sources in self.vhdl_sources.items():
                     do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
                     do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
                         RTL_LIBRARY=as_tcl_value(library),
                         VHDL_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     )
 
             if self.verilog_sources:
+                extra_args = self.compile_args
+                if self.verilog_compile_args is not None:
+                    extra_args += self.verilog_compile_args
 
                 for library, sources in self.verilog_sources.items():
                     do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
@@ -853,7 +885,7 @@ class Riviera(Simulator):
                         VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in sources),
                         DEFINES=" ".join(self.get_define_commands(self.defines)),
                         INCDIR=" ".join(self.get_include_commands(self.includes)),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     )
         else:
             self.logger.warning("Skipping compilation:" + out_file)
@@ -924,16 +956,22 @@ class Activehdl(Simulator):
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
             if self.vhdl_sources:
+                extra_args = self.compile_args
+                if self.vhdl_compile_args is not None:
+                    extra_args += self.vhdl_compile_args
 
                 for library, sources in self.vhdl_sources.items():
                     do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
                     do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
                         RTL_LIBRARY=as_tcl_value(library),
                         VHDL_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     )
 
             if self.verilog_sources:
+                extra_args = self.compile_args
+                if self.verilog_compile_args is not None:
+                    extra_args += self.verilog_compile_args
 
                 for library, sources in self.verilog_sources.items():
                     do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
@@ -942,7 +980,7 @@ class Activehdl(Simulator):
                         VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in sources),
                         DEFINES=" ".join(self.get_define_commands(self.defines)),
                         INCDIR=" ".join(self.get_include_commands(self.includes)),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
                     )
         else:
             self.logger.warning("Skipping compilation:" + out_file)
@@ -1031,6 +1069,9 @@ class Verilator(Simulator):
         return parameters_cmd
 
     def build_command(self):
+
+        if self.verilog_compile_args is not None:
+            self.compile_args += self.verilog_compile_args
 
         cmd = []
 

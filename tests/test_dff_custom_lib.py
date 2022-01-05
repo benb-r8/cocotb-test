@@ -15,6 +15,7 @@ def test_dff_vhdl():
         module="dff_cocotb",
         toplevel_lang="vhdl",
         toplevel_lib="some_other_lib",
+        vhdl_compile_args=["-2008"],
         force_compile=True,
     )
 
