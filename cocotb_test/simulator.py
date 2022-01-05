@@ -39,7 +39,6 @@ class Simulator(object):
         work_dir=None,
         python_search=None,
         toplevel_lang="verilog",
-        toplevel_lib=None,
         verilog_sources=None,
         vhdl_sources=None,
         includes=None,
@@ -94,7 +93,6 @@ class Simulator(object):
 
         self.toplevel = toplevel
         self.toplevel_lang = toplevel_lang
-        self.toplevel_lib = toplevel_lib
 
         if verilog_sources is None:
             verilog_sources = []
@@ -181,8 +179,14 @@ class Simulator(object):
 
         self.process = None
 
-        # Check if vhdl_sources and verilog_sources have the correct type depending each simulator
-        self.validate_sources_collection()
+        if not hasattr(self, "has_namedlib"):
+            self.has_namedlib = False
+        if not hasattr(self, "has_multitop"):
+            self.has_multitop = False
+        self.use_namedlib = False
+        self.use_multitop = False
+
+        self.format_input()
 
     def set_env(self):
 
@@ -199,7 +203,7 @@ class Simulator(object):
 
         self.env["PYTHONHOME"] = get_config_var("prefix")
 
-        self.env["TOPLEVEL"] = self.toplevel
+        self.env["TOPLEVEL"] = self.toplevel_first
         self.env["MODULE"] = self.module
 
         if not os.path.exists(self.sim_dir):
@@ -314,6 +318,12 @@ class Simulator(object):
 
         return False
 
+    def outdated_list(self, output, dependencies):
+        for o in output:
+            if self.outdated(o, dependencies):
+                return True
+        return False
+
     def exit_gracefully(self, signum, frame):
         pid = None
         if self.process is not None:
@@ -326,37 +336,71 @@ class Simulator(object):
         signal.signal(signal.SIGTERM, self.old_sigterm_h)
         assert False, "Exiting pid: {} with signum: {}".format(str(pid), str(signum))
 
-    def validate_sources_collection(self):
-        """Default implementation, to be overwritten if named libraries are implemented for a specific simulator."""
+    def format_input(self):
+        # format sources input
+        if self.has_namedlib:
+            if self.vhdl_sources is not None:
+                if isinstance(self.vhdl_sources, dict):
+                    self.use_namedlib = True
+                else:
+                    self.vhdl_sources = {f"{self.toplevel_first}": self.vhdl_sources}
 
-        if self.vhdl_sources is not None:
-            assert isinstance(self.vhdl_sources, list), "Parameter `vhdl_sources` must be a list of strings."
-        if self.verilog_sources is not None:
-            assert isinstance(self.verilog_sources, list), "Parameter `verilog_sources` must be a list of strings."
+            if self.verilog_sources is not None:
+                if isinstance(self.verilog, dict):
+                    self.use_namedlib = True
+                else:
+                    self.verilog_sources = {f"{self.toplevel_first}": self.verilog_sources}
+        else:
+            if self.vhdl_sources is not None:
+                assert isinstance(self.vhdl_sources, list), "Parameter `vhdl_sources` must be a list."
+            if self.verilog_sources is not None:
+                assert isinstance(self.verilog_sources, list), "Parameter `verilog_sources` must be a list."
 
-    def format_sources_as_dict(self):
-        """Format sources as dict for simulators that support named libraries."""
-        if self.vhdl_sources:
-            if type(self.vhdl_sources) == list:
-                # format `self.vhdl_sources` as dict with default library
-                self.toplevel_lib = self.toplevel
-                self.vhdl_sources = {f"{self.toplevel_lib}": self.vhdl_sources}
+        # format toplevel input
+        if self.has_multitop:
+            if isinstance(self.toplevel, list):
+                self.use_multitop = True
+            else:
+                self.toplevel = [self.toplevel]
+        else:
+            assert isinstance(self.toplevel, str), "Parameter `toplevel` must be a string."
 
-        if self.verilog_sources:
-            if isinstance(self.verilog_sources, list):
-                # format `self.verilog_sources` as dict with default library
-                self.verilog_sources = {f"{self.toplevel}": self.verilog_sources}
-                self.toplevel_lib = self.toplevel
+        # check that every toplevel specifies library when using namedlib
+        if self.use_namedlib:
+            if self.has_multitop:
+                toplevel = self.toplevel
+            else:
+                toplevel = [self.toplevel]
+            for v in toplevel:
+                assert "." in v, "When using named libraries, toplevels must be specified as '<library>.<module>'."
+
+        # format toplevel inuput when not using namedlib
+        if self.has_namedlib and not self.use_namedlib:
+            if self.has_multitop:
+                for j, v in enumerate(self.toplevel):
+                    if not "." in v:
+                        self.toplevel[j] = self.toplevel_first + "." + v
+            else:
+                if not "." in self.toplevel:
+                    self.toplevel = self.toplevel_first + "." + self.toplevel
+
+    @property
+    def toplevel_first(self):
+        if isinstance(self.toplevel, list):
+            return self.toplevel[0]
+        return self.toplevel
 
 
 class Icarus(Simulator):
+    has_multitop = True
+
     def __init__(self, *argv, **kwargs):
         super(Icarus, self).__init__(*argv, **kwargs)
 
         if self.vhdl_sources:
             raise ValueError("This simulator does not support VHDL")
 
-        self.sim_file = os.path.join(self.sim_dir, self.toplevel + ".vvp")
+        self.sim_file = os.path.join(self.sim_dir, self.toplevel_first + ".vvp")
 
     def get_include_commands(self, includes):
         include_cmd = []
@@ -378,7 +422,8 @@ class Icarus(Simulator):
         parameters_cmd = []
         for name, value in parameters.items():
             parameters_cmd.append("-P")
-            parameters_cmd.append(self.toplevel + "." + name + "=" + str(value))
+            # TODO: How should parameters be handled when using multiple top-level designs?
+            parameters_cmd.append(self.toplevel[0] + "." + name + "=" + str(value))
 
         return parameters_cmd
 
@@ -386,8 +431,13 @@ class Icarus(Simulator):
         if self.verilog_compile_args is not None:
             self.compile_args += self.verilog_compile_args
 
+        toplevel = []
+        for t in self.toplevel:
+            toplevel += ["-s", t]
+
         cmd_compile = (
-            ["iverilog", "-o", self.sim_file, "-D", "COCOTB_SIM=1", "-s", self.toplevel, "-g2012"]
+            ["iverilog", "-o", self.sim_file, "-D", "COCOTB_SIM=1", "-g2012"]
+            + toplevel
             + self.get_define_commands(self.defines)
             + self.get_include_commands(self.includes)
             + self.get_parameter_commands(self.parameters)
@@ -408,7 +458,7 @@ class Icarus(Simulator):
     def build_command(self):
         if self.waves:
             dump_mod_name = "iverilog_dump"
-            dump_file_name = self.toplevel+".fst"
+            dump_file_name = self.toplevel_first+".fst"
             dump_mod_file_name = os.path.join(self.sim_dir, dump_mod_name+".v")
 
             if not os.path.exists(dump_mod_file_name):
@@ -416,7 +466,7 @@ class Icarus(Simulator):
                     f.write("module iverilog_dump();\n")
                     f.write("initial begin\n")
                     f.write("    $dumpfile(\"%s\");\n" % dump_file_name)
-                    f.write("    $dumpvars(0, %s);\n" % self.toplevel)
+                    f.write("    $dumpvars(0, %s);\n" % self.toplevel_first)
                     f.write("end\n")
                     f.write("endmodule\n")
 
@@ -438,13 +488,8 @@ class Icarus(Simulator):
 
 
 class Questa(Simulator):
-
-    def validate_sources_collection(self):
-        if self.vhdl_sources is not None:
-            assert isinstance(self.vhdl_sources, (list, dict)), "Parameter `vhdl_sources` must be a `list` or a `dict`."
-        if self.verilog_sources is not None:
-            assert isinstance(self.verilog_sources, (list, dict)), "Parameter `verilog_sources` must be a `list` or a `dict`."
-
+    has_multitop = True
+    has_namedlib = True
 
     def get_include_commands(self, includes):
         include_cmd = []
@@ -470,8 +515,6 @@ class Questa(Simulator):
     def build_command(self):
 
         cmd = []
-
-        self.format_sources_as_dict()
 
         if self.vhdl_sources:
             extra_args = self.compile_args
@@ -510,13 +553,11 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if not self.compile_only:
-            assert self.toplevel_lib is not None, "Parameter toplevel_lib must be specified when using named libraries."
 
             if self.toplevel_lang == "vhdl":
-                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL};".format(
+                do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL};".format(
                     ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.toplevel_lib),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
+                    TOPLEVEL=" ".join(as_tcl_value(t) for t in self.toplevel),
                     EXT_NAME=as_tcl_value(
                         "cocotb_init {}".format(cocotb.config.lib_name_path("fli", "questa"))
                     ),
@@ -527,10 +568,9 @@ class Questa(Simulator):
                     self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("vpi", "questa")+":cocotbvpi_entry_point"
 
             else:
-                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS};".format(
+                do_script = "vsim -onfinish {ONFINISH} -pli {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL} {PLUS_ARGS};".format(
                     ONFINISH="stop" if self.gui else "exit",
-                    RTL_LIBRARY=as_tcl_value(self.toplevel_lib),
-                    TOPLEVEL=as_tcl_value(self.toplevel),
+                    TOPLEVEL=" ".join(as_tcl_value(t) for t in self.toplevel),
                     EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "questa")),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
                     PLUS_ARGS=" ".join(as_tcl_value(v) for v in self.plus_args),
@@ -856,44 +896,32 @@ class Riviera(Simulator):
 
         out_file = os.path.join(self.sim_dir, self.rtl_library, self.rtl_library + ".lib")
 
-        self.format_sources_as_dict()
-
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
-            if self.vhdl_sources:
-                extra_args = self.compile_args
-                if self.vhdl_compile_args is not None:
-                    extra_args += self.vhdl_compile_args
+            do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
 
-                for library, sources in self.vhdl_sources.items():
-                    do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
-                    do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
-                        RTL_LIBRARY=as_tcl_value(library),
-                        VHDL_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
-                    )
+            if self.vhdl_sources:
+                do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
+                    VHDL_SOURCES=" ".join(as_tcl_value(v) for v in self.vhdl_sources),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                )
 
             if self.verilog_sources:
-                extra_args = self.compile_args
-                if self.verilog_compile_args is not None:
-                    extra_args += self.verilog_compile_args
-
-                for library, sources in self.verilog_sources.items():
-                    do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
-                    do_script += "alog -work {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES} \n".format(
-                        RTL_LIBRARY=as_tcl_value(library),
-                        VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        DEFINES=" ".join(self.get_define_commands(self.defines)),
-                        INCDIR=" ".join(self.get_include_commands(self.includes)),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
-                    )
+                do_script += "alog -work {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES} \n".format(
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
+                    VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in self.verilog_sources),
+                    DEFINES=" ".join(self.get_define_commands(self.defines)),
+                    INCDIR=" ".join(self.get_include_commands(self.includes)),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                )
         else:
             self.logger.warning("Skipping compilation:" + out_file)
 
         if not self.compile_only:
             if self.toplevel_lang == "vhdl":
                 do_script += "asim +access +w -interceptcoutput -O2 -loadvhpi {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} \n".format(
-                    RTL_LIBRARY=as_tcl_value(self.toplevel_lib),
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
                     TOPLEVEL=as_tcl_value(self.toplevel),
                     EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vhpi", "riviera")),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
@@ -902,7 +930,7 @@ class Riviera(Simulator):
                     self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("vpi", "riviera") + "cocotbvpi_entry_point"
             else:
                 do_script += "asim +access +w -interceptcoutput -O2 -pli {EXT_NAME} {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS} \n".format(
-                    RTL_LIBRARY=as_tcl_value(self.toplevel_lib),
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
                     TOPLEVEL=as_tcl_value(self.toplevel),
                     EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "riviera")),
                     EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
@@ -951,37 +979,25 @@ class Activehdl(Simulator):
 
         out_file = os.path.join(self.sim_dir, self.rtl_library, self.rtl_library + ".lib")
 
-        self.format_sources_as_dict()
-
         if self.outdated(out_file, self.verilog_sources + self.vhdl_sources) or self.force_compile:
 
-            if self.vhdl_sources:
-                extra_args = self.compile_args
-                if self.vhdl_compile_args is not None:
-                    extra_args += self.vhdl_compile_args
+            do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
 
-                for library, sources in self.vhdl_sources.items():
-                    do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(library))
-                    do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
-                        RTL_LIBRARY=as_tcl_value(library),
-                        VHDL_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
-                    )
+            if self.vhdl_sources:
+                do_script += "acom -work {RTL_LIBRARY} {EXTRA_ARGS} {VHDL_SOURCES}\n".format(
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
+                    VHDL_SOURCES=" ".join(as_tcl_value(v) for v in self.vhdl_sources),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                )
 
             if self.verilog_sources:
-                extra_args = self.compile_args
-                if self.verilog_compile_args is not None:
-                    extra_args += self.verilog_compile_args
-
-                for library, sources in self.verilog_sources.items():
-                    do_script += "alib {RTL_LIBRARY} \n".format(RTL_LIBRARY=as_tcl_value(self.rtl_library))
-                    do_script += "alog {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES} \n".format(
-                        RTL_LIBRARY=as_tcl_value(library),
-                        VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in sources),
-                        DEFINES=" ".join(self.get_define_commands(self.defines)),
-                        INCDIR=" ".join(self.get_include_commands(self.includes)),
-                        EXTRA_ARGS=" ".join(as_tcl_value(v) for v in extra_args),
-                    )
+                do_script += "alog {RTL_LIBRARY} +define+COCOTB_SIM -sv {DEFINES} {INCDIR} {EXTRA_ARGS} {VERILOG_SOURCES} \n".format(
+                    RTL_LIBRARY=as_tcl_value(self.rtl_library),
+                    VERILOG_SOURCES=" ".join(as_tcl_value(v) for v in self.verilog_sources),
+                    DEFINES=" ".join(self.get_define_commands(self.defines)),
+                    INCDIR=" ".join(self.get_include_commands(self.includes)),
+                    EXTRA_ARGS=" ".join(as_tcl_value(v) for v in self.compile_args),
+                )
         else:
             self.logger.warning("Skipping compilation:" + out_file)
 
@@ -992,8 +1008,9 @@ class Activehdl(Simulator):
         do_script = ""
 
         if self.toplevel_lang == "vhdl":
-            do_script += "set worklib " + as_tcl_value(self.toplevel_lib) + "\n"
+            do_script += "set worklib " + as_tcl_value(self.rtl_library) + "\n"
             do_script += "asim +access +w -interceptcoutput -O2 -loadvhpi \"{EXT_NAME}\" {EXTRA_ARGS} {TOPLEVEL} \n".format(
+                RTL_LIBRARY=as_tcl_value(self.rtl_library),
                 TOPLEVEL=as_tcl_value(self.toplevel),
                 EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vhpi", "activehdl") + ":vhpi_startup_routines_bootstrap"),
                 EXTRA_ARGS=" ".join(self.simulation_args + self.get_parameter_commands(self.parameters)),
@@ -1002,7 +1019,7 @@ class Activehdl(Simulator):
                 self.env["GPI_EXTRA"] = cocotb.config.lib_name_path("vpi", "activehdl") + "cocotbvpi_entry_point"
         else:
             do_script += "asim +access +w -interceptcoutput -O2 -pli \"{EXT_NAME}\" {EXTRA_ARGS} {RTL_LIBRARY}.{TOPLEVEL} {PLUS_ARGS} \n".format(
-                RTL_LIBRARY=as_tcl_value(self.toplevel_lib),
+                RTL_LIBRARY=as_tcl_value(self.rtl_library),
                 TOPLEVEL=as_tcl_value(self.toplevel),
                 EXT_NAME=as_tcl_value(cocotb.config.lib_name_path("vpi", "activehdl")),
                 EXTRA_ARGS=" ".join(as_tcl_value(v) for v in (self.simulation_args + self.get_parameter_commands(self.parameters))),
@@ -1036,7 +1053,6 @@ class Activehdl(Simulator):
         do_file.close()
 
         return [["vsimsa"] + ["-do"] + [do_file.name]]
-
 
 class Verilator(Simulator):
     def __init__(self, *argv, **kwargs):
