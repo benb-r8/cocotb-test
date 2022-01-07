@@ -339,13 +339,13 @@ class Simulator(object):
     def format_input(self):
         # format sources input
         if self.has_namedlib:
-            if self.vhdl_sources is not None:
+            if self.vhdl_sources:
                 if isinstance(self.vhdl_sources, dict):
                     self.use_namedlib = True
                 else:
                     self.vhdl_sources = {f"{self.toplevel_first}": self.vhdl_sources}
 
-            if self.verilog_sources is not None:
+            if self.verilog_sources:
                 if isinstance(self.verilog_sources, dict):
                     self.use_namedlib = True
                 else:
@@ -535,6 +535,7 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if self.verilog_sources:
+            print(f"VERILOG_SOURCES={self.verilog_sources}")
             extra_args = self.compile_args.copy()
             if self.verilog_compile_args is not None:
                 extra_args += self.verilog_compile_args
