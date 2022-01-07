@@ -376,13 +376,14 @@ class Simulator(object):
 
         # format toplevel inuput when not using namedlib
         if self.has_namedlib and not self.use_namedlib:
+            default_lib = self.toplevel[0]
             if self.has_multitop:
                 for j, v in enumerate(self.toplevel):
                     if not "." in v:
-                        self.toplevel[j] = self.toplevel_first + "." + v
+                        self.toplevel[j] = default_lib + "." + v
             else:
                 if not "." in self.toplevel:
-                    self.toplevel = self.toplevel_first + "." + self.toplevel
+                    self.toplevel = default_lib + "." + self.toplevel
 
     @property
     def toplevel_first(self):
@@ -517,7 +518,7 @@ class Questa(Simulator):
         cmd = []
 
         if self.vhdl_sources:
-            extra_args = self.compile_args
+            extra_args = self.compile_args.copy()
             if self.vhdl_compile_args is not None:
                 extra_args += self.vhdl_compile_args
 
@@ -534,7 +535,7 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if self.verilog_sources:
-            extra_args = self.compile_args
+            extra_args = self.compile_args.copy()
             if self.verilog_compile_args is not None:
                 extra_args += self.verilog_compile_args
 
@@ -553,7 +554,7 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if not self.compile_only:
-
+            print(f"TOPLEVEL={self.toplevel}")
             if self.toplevel_lang == "vhdl":
                 do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL};".format(
                     ONFINISH="stop" if self.gui else "exit",
