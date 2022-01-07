@@ -346,7 +346,7 @@ class Simulator(object):
                     self.vhdl_sources = {f"{self.toplevel_first}": self.vhdl_sources}
 
             if self.verilog_sources is not None:
-                if isinstance(self.verilog, dict):
+                if isinstance(self.verilog_sources, dict):
                     self.use_namedlib = True
                 else:
                     self.verilog_sources = {f"{self.toplevel_first}": self.verilog_sources}
