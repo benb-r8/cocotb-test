@@ -535,7 +535,6 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if self.verilog_sources:
-            print(f"VERILOG_SOURCES={self.verilog_sources}")
             extra_args = self.compile_args.copy()
             if self.verilog_compile_args is not None:
                 extra_args += self.verilog_compile_args
@@ -555,7 +554,6 @@ class Questa(Simulator):
             cmd.append(["vsim"] + ["-c"] + ["-do"] + [do_script])
 
         if not self.compile_only:
-            print(f"TOPLEVEL={self.toplevel}")
             if self.toplevel_lang == "vhdl":
                 do_script = "vsim -onfinish {ONFINISH} -foreign {EXT_NAME} {EXTRA_ARGS} {TOPLEVEL};".format(
                     ONFINISH="stop" if self.gui else "exit",
